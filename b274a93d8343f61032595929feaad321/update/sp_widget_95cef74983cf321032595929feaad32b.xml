@@ -1,0 +1,292 @@
+<?xml version="1.0" encoding="UTF-8"?><record_update table="sp_widget">
+    <sp_widget action="INSERT_OR_UPDATE">
+        <category>custom</category>
+        <client_script><![CDATA[api.controller = function(spModal, $scope) {
+  var c = this;
+
+  // Post a new comment to the activity stream
+  c.addComment = function(item) {
+    if (!item.newComment) return;
+    
+    c.data.sys_id = item.sys_id;
+    c.data.action = 'add_comment';
+    c.data.comment = item.newComment;
+    
+    c.server.update().then(function() {
+        item.newComment = ""; // Clear input field on success
+    });
+  };
+
+  // Open the decision modal (Approve/Reject)
+  c.openModal = function(item, type) {
+    var isApprove = (type === 'approve');
+    var title = isApprove ? 'Approve Request' : 'Reject Request';
+    var btnClass = isApprove ? 'btn-success' : 'btn-danger';
+    var btnLabel = isApprove ? 'Confirm Approve' : 'Confirm Reject';
+    
+    spModal.open({
+      title: title,
+      message: 'Please provide a reason or additional notes:',
+      input: true,
+      buttons: [
+        {label: 'Cancel', cancel: true},
+        {label: btnLabel, primary: true, class: btnClass}
+      ]
+    }).then(function(reason) {
+        c.data.sys_id = item.sys_id;
+        c.data.action = isApprove ? 'approved' : 'rejected';
+        c.data.comment = reason;
+        c.server.update();
+    });
+  };
+};]]></client_script>
+        <controller_as>c</controller_as>
+        <css>.approval-portal-wrapper {
+  max-width: 950px;
+  margin: 0 auto;
+  padding: 20px;
+
+  .approval-card {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+
+    .card-meta {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 12px;
+      align-items: center;
+      .record-num { color: #64748b; font-weight: 600; font-size: 13px; }
+    }
+
+    .badge {
+      padding: 4px 12px;
+      border-radius: 100px;
+      font-size: 12px;
+      &amp;.badge-priority.high { background: #fee2e2; color: #b91c1c; }
+      &amp;.badge-status { background: #f1f5f9; color: #475569; }
+      &amp;.badge-type { border: 1px solid #e2e8f0; background: #fff; color: #475569; }
+    }
+
+    .action-footer {
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid #f1f5f9;
+      padding-top: 20px;
+      margin-top: 20px;
+    }
+
+    .btn-approve { background: #528574; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; margin-right: 8px; }
+    .btn-reject { background: #b91c1c; color: #fff; border: none; border-radius: 6px; padding: 8px 16px; margin-right: 8px; }
+    .btn-view { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px 16px; }
+
+    .comment-section {
+      margin-top: 15px;
+      background: #f8fafc;
+      padding: 15px;
+      border-radius: 8px;
+
+      .comment-item {
+        background: #fff;
+        padding: 10px;
+        border-radius: 6px;
+        border-left: 3px solid #3b82f6;
+        margin-bottom: 10px;
+      }
+
+      .comment-input-group {
+        position: relative;
+        margin-top: 15px;
+        input { border-radius: 25px; padding-right: 45px; height: 40px; }
+        .btn-send { position: absolute; right: 5px; top: 4px; background: #3b82f6; color: #fff; border-radius: 50%; width: 32px; height: 32px; padding: 0; }
+      }
+    }
+  }
+}</css>
+        <data_table>sp_instance</data_table>
+        <demo_data/>
+        <description/>
+        <docs/>
+        <field_list/>
+        <has_preview>false</has_preview>
+        <id>policy_approval</id>
+        <internal>false</internal>
+        <link><![CDATA[function link(scope, element, attrs, controller) {
+  
+}]]></link>
+        <name>Policy Approval</name>
+        <option_schema/>
+        <public>false</public>
+        <roles/>
+        <script><![CDATA[(function() {
+    data.approvals = [];
+    var loggedInUser = gs.getUserID();
+
+    // Handle Input Actions
+    if (input) {
+        var grAction = new GlideRecord('sysapproval_approver');
+        if (grAction.get(input.sys_id)) {
+            // 1. Process Approval or Rejection
+            if (input.action === 'approved' || input.action === 'rejected') {
+                grAction.state = input.action;
+                grAction.comments = input.comment;
+                grAction.update();
+            }
+            
+            // 2. Process New Comment Posting
+            if (input.action === 'add_comment' && input.comment) {
+                var taskGr = new GlideRecord('task'); 
+                if (taskGr.get(grAction.sysapproval)) {
+                    taskGr.comments = input.comment;
+                    taskGr.update();
+                }
+            }
+        }
+    }
+
+    // Fetch all 'Requested' approvals
+    var gr = new GlideRecord('sysapproval_approver');
+    gr.addQuery('approver', loggedInUser);
+    gr.addQuery('state', 'requested');
+    gr.orderByDesc('sys_created_on');
+    gr.query();
+
+    while (gr.next()) {
+        var obj = {
+            sys_id: gr.getUniqueValue(),
+            target_sys_id: gr.sysapproval.toString(),
+            number: gr.sysapproval.getDisplayValue(),
+            short_description: gr.sysapproval.short_description.getDisplayValue(),
+            description: gr.sysapproval.description.getDisplayValue(),
+            opened_by: gr.sysapproval.opened_by.getDisplayValue(),
+            created: gr.sysapproval.sys_created_on.getDisplayValue(),
+            priority: gr.sysapproval.priority.getDisplayValue(),
+            type: gr.sysapproval.sys_class_name.getDisplayValue(),
+            comments: []
+        };
+        
+        // Fetch all previous journal comments
+        var mgr = new GlideRecord('sys_journal_field');
+        mgr.addQuery('element_id', gr.sysapproval.sys_id);
+        mgr.addQuery('element', 'comments');
+        mgr.orderByDesc('sys_created_on');
+        mgr.query();
+        
+        while(mgr.next()){
+            obj.comments.push({
+                user: mgr.sys_created_by.toString(),
+                text: mgr.value.toString(),
+                date: mgr.sys_created_on.getDisplayValue()
+            });
+        }
+        data.approvals.push(obj);
+    }
+})();]]></script>
+        <servicenow>false</servicenow>
+        <sys_class_name>sp_widget</sys_class_name>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2026-02-12 17:16:51</sys_created_on>
+        <sys_id>95cef74983cf321032595929feaad32b</sys_id>
+        <sys_mod_count>8</sys_mod_count>
+        <sys_name>Policy Approval</sys_name>
+        <sys_package display_value="Global" source="global">global</sys_package>
+        <sys_policy/>
+        <sys_scope display_value="sn-dev-global-works">b274a93d8343f61032595929feaad321</sys_scope>
+        <sys_update_name>sp_widget_95cef74983cf321032595929feaad32b</sys_update_name>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2026-02-14 14:02:33</sys_updated_on>
+        <template><![CDATA[<div class="approval-portal-wrapper">
+  <div class="header-section">
+    <h3>Approval Portal</h3>
+    <p class="text-muted">{{data.approvals.length}} pending requests</p>
+  </div>
+
+  <div class="approval-card" ng-repeat="item in data.approvals">
+    <div class="card-meta">
+      <span class="record-num">{{item.number}}</span>
+      <span class="badge badge-priority" ng-class="{'high': item.priority.includes('High')}">{{item.priority}}</span>
+      <span class="badge badge-status">Pending</span>
+      <span class="badge badge-type">{{item.type}}</span>
+    </div>
+
+    <h4 class="record-title">{{item.short_description}}</h4>
+    <p class="record-desc">{{item.description}}</p>
+
+    <div class="user-details">
+      <span><i class="fa fa-user"></i> {{item.opened_by}}</span>
+      <span><i class="fa fa-calendar"></i> {{item.created}}</span>
+    </div>
+
+    <div class="action-footer">
+      <div class="btn-group-main">
+        <button class="btn btn-approve" ng-click="c.openModal(item, 'approve')">
+          <i class="fa fa-check"></i> Approve
+        </button>
+        <button class="btn btn-reject" ng-click="c.openModal(item, 'reject')">
+          <i class="fa fa-times"></i> Reject
+        </button>
+        <button class="btn btn-view" ng-click="c.viewPolicy(item)">
+          <i class="fa fa-file-text-o"></i> View Policy
+        </button>
+      </div>
+      
+      <button class="btn btn-link toggle-comments" ng-click="item.showComments = !item.showComments">
+        <i class="fa" ng-class="item.showComments ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+        Comments ({{item.comments.length}})
+      </button>
+    </div>
+
+    <div class="comment-section" ng-if="item.showComments">
+      <div class="history-list">
+        <div class="comment-item" ng-repeat="comment in item.comments">
+          <div class="comment-top">
+            <strong>{{comment.user}}</strong>
+            <span class="pull-right date-text">{{comment.date}}</span>
+          </div>
+          <div class="comment-text">{{comment.text}}</div>
+        </div>
+      </div>
+
+      <div class="comment-input-group">
+        <input type="text" 
+               class="form-control" 
+               placeholder="Add a comment..." 
+               ng-model="item.newComment"
+               ng-keydown="$event.keyCode === 13 && c.addComment(item)">
+        <button class="btn btn-send" ng-click="c.addComment(item)">
+          <i class="fa fa-paper-plane"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>]]></template>
+    </sp_widget>
+    <sys_claim action="INSERT_OR_UPDATE">
+        <claim_owner_scope display_value="sn-dev-global-works">b274a93d8343f61032595929feaad321</claim_owner_scope>
+        <claim_timestamp>19c5c75d95d0000001</claim_timestamp>
+        <metadata_update_name>sp_widget_95cef74983cf321032595929feaad32b</metadata_update_name>
+        <previous_claim_app_version>1.0.0</previous_claim_app_version>
+        <previous_claim_name>sn-dev-global-works</previous_claim_name>
+        <previous_claim_scope>b274a93d8343f61032595929feaad321</previous_claim_scope>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2026-02-14 14:02:33</sys_created_on>
+        <sys_id>0f8529fd8343f61032595929feaad358</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2026-02-14 14:02:33</sys_updated_on>
+    </sys_claim>
+    <sys_es_latest_script action="INSERT_OR_UPDATE">
+        <id>95cef74983cf321032595929feaad32b</id>
+        <sys_created_by>admin</sys_created_by>
+        <sys_created_on>2026-02-12 17:16:50</sys_created_on>
+        <sys_id>e1debb4983cf321032595929feaad31b</sys_id>
+        <sys_mod_count>0</sys_mod_count>
+        <sys_updated_by>admin</sys_updated_by>
+        <sys_updated_on>2026-02-12 17:16:50</sys_updated_on>
+        <table>sp_widget</table>
+        <use_es_latest>true</use_es_latest>
+    </sys_es_latest_script>
+</record_update>
